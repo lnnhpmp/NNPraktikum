@@ -1,7 +1,7 @@
 
 import numpy as np
 
-from util.loss_functions import CrossEntropyError
+from util.loss_functions import CrossEntropyError, BinaryCrossEntropyError, SumSquaredError, MeanSquaredError, DifferentError, AbsoluteError
 from model.logistic_layer import LogisticLayer
 from model.classifier import Classifier
 
@@ -43,7 +43,7 @@ class MultilayerPerceptron(Classifier):
         self.epochs = epochs
         self.outputTask = outputTask  # Either classification or regression
         self.outputActivation = outputActivation
-        self.cost = cost
+        #self.cost = cost
 
         self.trainingSet = train
         self.validationSet = valid
@@ -59,6 +59,8 @@ class MultilayerPerceptron(Classifier):
             self.loss = DifferentError()
         elif loss == 'absolute':
             self.loss = AbsoluteError()
+        elif loss == 'crossentropy':
+            self.loss = CrossEntropyError()
         else:
             raise ValueError('There is no predefined loss function ' +
                              'named ' + str)
@@ -72,14 +74,18 @@ class MultilayerPerceptron(Classifier):
         # Build up the network from specific layers
         self.layers = []
 
+        self.numHidden = 40
+
         # Input layer
         inputActivation = "sigmoid"
         self.layers.append(LogisticLayer(train.input.shape[1], 128, 
                            None, inputActivation, False))
 
+        self.layers.append(LogisticLayer(128, self.numHidden, None, "sigmoid", False))
+
         # Output layer
         outputActivation = "softmax"
-        self.layers.append(LogisticLayer(128, 10, 
+        self.layers.append(LogisticLayer(self.numHidden, 10,
                            None, outputActivation, True))
 
         self.inputWeights = inputWeights
@@ -113,8 +119,15 @@ class MultilayerPerceptron(Classifier):
         # Here you have to propagate forward through the layers
         # And remember the activation values of each layer
         """
+        input_next = inp
+        for layer in self.layers:
+            lastLayerOutput = layer.forward(input_next)
+            input_next = np.insert(lastLayerOutput,0,1)
+
+        return lastLayerOutput
+
         
-    def _compute_error(self, target):
+    def _compute_error(self, target, output):
         """
         Compute the total error of the network (error terms from the output layer)
 
@@ -123,13 +136,19 @@ class MultilayerPerceptron(Classifier):
         ndarray :
             a numpy array (1,nOut) containing the output of the layer
         """
-        pass
+        error = np.zeros(self.layers[-1].nOut)
+        for i in range(self.layers[-1].nOut):
+            error[i] = self.loss.calculateError(target[i],output[i])
+        return error
+        
     
     def _update_weights(self, learningRate):
         """
         Update the weights of the layers by propagating back the error
         """
-        pass
+        for layer in self.layers:
+            layer.updateWeights(learningRate)
+        
         
     def train(self, verbose=True):
         """Train the Multi-layer Perceptrons
@@ -139,14 +158,60 @@ class MultilayerPerceptron(Classifier):
         verbose : boolean
             Print logging messages with validation accuracy if verbose is True.
         """
-        pass
+
+        for epoch in range(self.epochs):
+            i = 0
+            for img, label in zip(self.trainingSet.input,
+                                self.trainingSet.label):
+
+                i += 1
+
+                label_vec = np.zeros([10])
+                label_vec[label] = 1
+
+                label = label_vec
+                # Use LogisticLayer to do the job
+                # Feed it with inputs
+                output = self._feed_forward(img)
+
+                # Do a forward pass to calculate the output and the error
+                error = self._compute_error(label, output)
+
+                nextWeights = np.ones(self.layers[-1].nOut)
+
+                lossDerivative = self.loss.calculateDerivative(label, output)
+                nextDev = lossDerivative
+
+                for layer in reversed(self.layers):
+                    '''nextDev = np.multiply(self.loss.calculateDerivative(label, layer.outp),
+                                          layer.computeDerivative(nextDev, nextWeights))'''
+                    nextDev = layer.computeDerivative(nextDev, nextWeights)
+                    nextWeights = np.transpose(layer.weights[1:])
+
+                # Update weights in the online learning fashion
+                self._update_weights(self.learningRate)
+
+            if verbose:
+                print("Training epoch {0}/{1}.."
+                      .format(epoch + 1, self.epochs))
+
+            if verbose:
+                accuracy = accuracy_score(self.validationSet.label,
+                                          list(map(self.classify, self.validationSet)))
+                # Record the performance of each epoch for later usages
+                # e.g. plotting, reporting..
+                self.performances.append(accuracy)
+                print("Accuracy on validation: {0:.2f}%"
+                      .format(accuracy * 100))
+                print("-----------------------------")
 
 
 
     def classify(self, test_instance):
         # Classify an instance given the model of the classifier
         # You need to implement something here
-        pass
+        outp = self._feed_forward(test_instance)
+        return np.argmax(outp)
         
 
     def evaluate(self, test=None):
@@ -164,8 +229,6 @@ class MultilayerPerceptron(Classifier):
         """
         if test is None:
             test = self.testSet.input
-        # Once you can classify an instance, just use map for all of the test
-        # set.
         return list(map(self.classify, test))
 
     def __del__(self):

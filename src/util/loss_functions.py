@@ -5,8 +5,9 @@
 Loss functions.
 """
 
+import sys
 import numpy as np
-
+from numpy import log
 from abc import ABCMeta, abstractmethod, abstractproperty
 
 
@@ -122,7 +123,7 @@ class CrossEntropyError(Error):
         self.errorString = 'crossentropy'
 
     def calculateError(self, target, output):
-        pass
+        return - (target * np.log(output) + (1.0 - target) * np.log(1.0 - output))
         
     def calculateDerivativer(self, target, output):
-        pass
+        return -target / output + (1-target) / (1 - output)
